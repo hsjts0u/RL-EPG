@@ -25,7 +25,7 @@ class Actor(nn.Module):
         out = F.relu(self.fc1(x))
         out = F.relu(self.fc2(out))
         out = F.relu(self.fc3(out))
-        out = F.tanh(self.fc2(out))
+        out = F.tanh(self.fc4(out))
         return out
     
     
