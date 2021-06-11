@@ -5,12 +5,13 @@ DDPG
 import numpy as np
 import torch
 import torch.nn as nn
+import gym
 from torch.optim import Adam
 from copy import deepcopy
 
-from .model import (Actor, Critic)
-from .memory import SequentialMemory
-from .random_process import OUProcess
+from model import (Actor, Critic)
+from memory import SequentialMemory
+from random_process import OUProcess
 
 
 USE_CUDA = torch.cuda.is_available()
@@ -52,7 +53,7 @@ def to_numpy(var):
 
 def to_tensor(ndarray, requires_grad=False, dtype=torch.float32):
     """ turn numpy array to pytorch tensor  """
-    return torch.tensor(torch.from_numpy(ndarray=ndarray),
+    return torch.tensor(torch.from_numpy(ndarray),
                         dtype=dtype, requires_grad=requires_grad)
         
 class DDPG:
@@ -213,3 +214,14 @@ class DDPG:
                 episode_reward = 0.0
                 episode_steps = 0
                 episode += 1
+
+if __name__ == '__main__':
+    env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
+                'Reacher2d-v2', 'Walker2d-v2']
+
+    env = gym.make(env_list[1])
+    env.seed(20)
+
+    ddpg = DDPG(env.observation_space.shape[0], env.action_space.shape[0])
+    ddpg.train(10, env, "IPv2", max_episode_length=1000)
+    print("done")
