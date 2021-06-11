@@ -14,45 +14,43 @@ from torch.distributions import Categorical
 import torch.optim.lr_scheduler as Scheduler
 
 
-class Actor(nn.Module):
+class EPG(object):
+    def __init__(self, n_states, n_actions, lr=0.9):
+        self.lr = lr
+        self.n_states = n_states
+        self.n_actions = n_actions
 
-    def __init__(self):
-        super(Actor, self).__init__()
-        """
-        WRITE YOUR CODE HERE
-        """
+        self.actor = Actor(self.n_states, self.n_actions)
+        self.critic = Critic(self.n_states, self.n_actions)
 
-    def forward(self, state):
-	"""
-        WRITE YOUR CODE HERE
-        """
+        self.actor_optim  = Adam(self.actor.parameters(), lr=self.lr)
+        self.critic_optim  = Adam(self.critic.parameters(), lr=self.lr)
 
-    def select_action(self, state):
-        """
-        WRITE YOUR CODE HERE
-        """
+        self.USE_CUDA = torch.cuda.is_available()
+        
+        if self.USE_CUDA:
+            self.cuda()
 
+    def eval(self):
+        self.actor.eval()
+        self.critic.eval()
+    
 
-class Critic(nn.Module):
+    def cuda(self):
+        self.actor.cuda()
+        self.critic.cuda()
 
-    def __init__(self):
-        super(Critic, self).__init__()
-	"""
-        WRITE YOUR CODE HERE
-        """
+    def save_model(self):
+        torch.save(self.actor.state_dict(), './epg/actor.pth')
+        torch.save(self.critic.state_dict(), './epg/critic.pth')
 
-    def forward(self, state):
-        """
-       WRITE YOUR CODE HERE
-        """
+    def seed(self, s):
+        torch.manual_seed(s)
+        if self.USE_CUDA:
+            torch.cuda.manual_seed(s)
 
 
 def train(model_name, ewma_threshold, lr=0.01):
-
-    mA = Actor()
-    mC = Critic()
-    optimA = optim.Adam(mA.parameters(), lr=lr)
-    optimC = optim.Adam(mC.parameters(), lr=lr)
 
     ewma_threshold = 0
     gamma = 0.999
