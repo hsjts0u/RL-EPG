@@ -139,25 +139,29 @@ class DDPG:
         state_batch, action_batch, reward_batch, next_state_batch, \
             terminal_batch = self.memory.sample_and_split(self.batch_size)
 
-        next_q_values = self.critic_target([
-            to_tensor(next_state_batch, requires_grad=False),
-            self.actor_target(to_tensor(next_state_batch, requires_grad=False))
-        ])
+        next_q_values = self.critic_target(
+            torch.cat((
+                to_tensor(next_state_batch),
+                self.actor_target(to_tensor(next_state_batch)).detach()
+            ), dim=1)
+        ).detach()
 
         target_q_batch = to_tensor(reward_batch) + \
             self.discount * \
             to_tensor(terminal_batch.astype(np.float32))*next_q_values
 
 
-        q_batch = self.critic([to_tensor(state_batch), to_tensor(action_batch)])
+        q_batch = self.critic(torch.cat(
+            (to_tensor(state_batch), to_tensor(action_batch)), dim=1))
 
         value_loss = loss(q_batch, target_q_batch)
         value_loss.backward()
         self.critic_optim.step()
         self.critic_optim.zero_grad()
 
-        policy_loss = -self.critic([to_tensor(state_batch),
-                                    self.actor(to_tensor(state_batch))])
+        policy_loss = -self.critic(torch.cat(
+            (to_tensor(state_batch), self.actor(to_tensor(state_batch))),
+            dim=1))
 
         policy_loss = policy_loss.mean()
         policy_loss.backward()
@@ -176,9 +180,9 @@ class DDPG:
         while step < num_iter:
             if observation is None:
                 observation = deepcopy(env.reset())
-                agent.reset(observation)
+                self.reset(observation)
 
-            action = agent.select_action(observation)
+            action = self.select_action(observation)
 
             observ2, reward, done, _ = env.step(action)
             observ2 = deepcopy(observ2)
@@ -209,4 +213,3 @@ class DDPG:
                 episode_reward = 0.0
                 episode_steps = 0
                 episode += 1
-
