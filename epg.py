@@ -2,39 +2,43 @@
 # Team Implementation Project: Expected Policy Gradient
 
 import gym
-from itertools import count
-from collections import namedtuple
 import numpy as np
+from itertools import count
+from hessian import hessian
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.optim as optim
-from torch.distributions import Categorical
-import torch.optim.lr_scheduler as Scheduler
 
+from .model import (Actor, Critic)
+
+USE_CUDA = torch.cuda.is_available()
+sigma_0 = 0.5
+c = 1.0
 
 class EPG(object):
-    def __init__(self, n_states, n_actions, lr=0.9):
+    def __init__(self, n_states, n_actions, sigma=0.5, lr=0.001):
         self.lr = lr
         self.n_states = n_states
         self.n_actions = n_actions
+        self.sigma = sigma
 
         self.actor = Actor(self.n_states, self.n_actions)
         self.critic = Critic(self.n_states, self.n_actions)
 
         self.actor_optim  = Adam(self.actor.parameters(), lr=self.lr)
         self.critic_optim  = Adam(self.critic.parameters(), lr=self.lr)
-
-        self.USE_CUDA = torch.cuda.is_available()
         
-        if self.USE_CUDA:
+        if USE_CUDA:
             self.cuda()
+
+    def select_action(self, mu):
+        action = torch.normal(mean=mu, std=self.sigma, size=1)
+        return torch.clamp(action, min=-1, max=1)
 
     def eval(self):
         self.actor.eval()
-        self.critic.eval()
-    
+        self.critic.eval()  
 
     def cuda(self):
         self.actor.cuda()
@@ -49,9 +53,22 @@ class EPG(object):
         if self.USE_CUDA:
             torch.cuda.manual_seed(s)
 
+def Gauss_integral(Q, state, mu):
+    I = mu * Q
+    return I
 
-def train(model_name, ewma_threshold, lr=0.01):
+def Get_Covariance(Q, action):
+    H = hessian(Q, action)
+    return sigma_0 * torch.exp(c * H)
 
+def train(env, ewma_threshold, lr=0.01):
+
+    discrete = isinstance(env.action_space, gym.spaces.Discrete)
+    observation_dim = env.observation_space.shape[0]
+    action_dim = env.action_space.n if discrete else env.action_space.shape[0]
+    
+    model = EPG(observation_dim, action_dim)
+    
     ewma_threshold = 0
     gamma = 0.999
 
@@ -59,11 +76,23 @@ def train(model_name, ewma_threshold, lr=0.01):
         state = env.reset()
         ep_reward = 0
         t = 0
+        gamma_t = 1
+        for t in range(10000):
+            mu = model.actor(state)
+            action = model.select_action(mu)
+            Q = model.critic(torch.cat((state, action), dim=1))
+        	g_t = gamma_t * Gauss_integral(Q, s, mu)
 
-    for t in range(1, 10000):
-	"""
-        WRITE YOUR CODE HERE
-        """
+            model.actor_optim.zero_grad()
+            g_t.backward()
+            model.actor_optim.step()
+
+            model.sigma = Get_Covariance(Q, action)
+            
+            new_state, reward, done, _ = env.step(action)
+
+            ep_reward += reward
+            gamma_t *= gamma
 
         ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
         print(f'Episode {i_episode}\tlength: {t}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
@@ -103,9 +132,10 @@ if __name__ == '__main__':
     random_seed = 20
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
-    env = gym.make('')
-    env.seed(random_seed)
-    torch.manual_seed(random_seed)
+    for e in env_list:
+        env = gym.make(e)
+        env.seed(random_seed)
+        torch.manual_seed(random_seed)
 
-    train(model_name, ewma_threshold, lr)
-    test()
+        train(env, ewma_threshold, lr)
+        test()
