@@ -110,7 +110,7 @@ class SPG(object):
                 
                 
 if __name__ == "__main__":
-    env = gym.make("HalfCheetah-v2")
+    env = gym.make("MountainCarContinuous-v0")
     model = SPG(env.observation_space.shape[0], env.action_space.shape[0])
     model.train(20, env, 280000)
                 

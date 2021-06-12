@@ -20,12 +20,14 @@ class Actor(nn.Module):
         self.fc2 = nn.Linear(100, 50)
         self.fc3 = nn.Linear(50, 25)
         self.fc4 = nn.Linear(25, action_space)
+        self.relu = nn.ReLU()
+        self.tanh = nn.Tanh()
 
     def forward(self, x):
-        out = F.relu(self.fc1(x))
-        out = F.relu(self.fc2(out))
-        out = F.relu(self.fc3(out))
-        out = F.tanh(self.fc4(out))
+        out = self.relu(self.fc1(x))
+        out = self.relu(self.fc2(out))
+        out = self.relu(self.fc3(out))
+        out = self.tanh(self.fc4(out))
         return out
 
 
@@ -41,9 +43,10 @@ class Critic(nn.Module):
         self.fc1 = nn.Linear(observation_space + action_space, 100)
         self.fc2 = nn.Linear(100, 100)
         self.fc3 = nn.Linear(100, 1)
+        self.relu = nn.ReLU()
 
     def forward(self, x):
-        out = F.relu(self.fc1(x))
-        out = F.relu(self.fc2(out))
+        out = self.relu(self.fc1(x))
+        out = self.relu(self.fc2(out))
         out = self.fc3(out)
         return out

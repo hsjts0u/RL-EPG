@@ -27,11 +27,11 @@ def Get_Covariance(Q, mu):
     return sigma_0 * torch.exp(c * H)
 
 class EPG(object):
-    def __init__(self, n_states, n_actions, sigma=0.5):
+    def __init__(self, n_states, n_actions):
         self.lr = lr
         self.n_states = n_states
         self.n_actions = n_actions
-        self.std = sigma
+        self.std = sigma_0
 
         self.actor = Actor(self.n_states, self.n_actions)
         self.critic = Critic(self.n_states, self.n_actions)
@@ -43,7 +43,7 @@ class EPG(object):
             self.cuda()
 
     def select_action(self, mu):
-        action = torch.normal(mean=mu, std=self.std, size=1)
+        action = torch.normal(mean=mu.item(), std=self.std, size=1)
         return torch.clamp(action, min=-1, max=1)
 
     def eval(self):
@@ -84,6 +84,7 @@ def train(env, ewma_threshold, lr=0.01):
         t = 0
         gamma_t = 1
         for t in range(10000):
+            state = torch.from_numpy(state).float().unsqueeze(0)
             mu = model.actor(state)
             action = model.select_action(mu)
 
@@ -96,10 +97,11 @@ def train(env, ewma_threshold, lr=0.01):
 
             model.std = Get_Covariance(Q, mu)
             
-            new_state, reward, done, _ = env.step(action)
+            new_state, reward, done, _ = env.step(action.item())
 
             ep_reward += reward
             gamma_t *= gamma
+            state = new_state
 
         ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
         print(f'Episode {i_episode}\tlength: {t}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
