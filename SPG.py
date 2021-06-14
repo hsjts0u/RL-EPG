@@ -1,18 +1,20 @@
 # SPG Q-actor-critic
-
+ 
 import gym
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from collections import namedtuple
 from torch.optim import Adam
 from itertools import count
 from torch.distributions.normal import Normal
-
+from copy import deepcopy
+ 
 from model import (Actor, Critic)
-
+ 
 torch.autograd.set_detect_anomaly(True)
-
+ 
 class SPG(object):
     def __init__(self, actor_lr, critic_lr, gamma, nb_states, nb_actions,
                  max_episodes, max_ep_steps, reward_scaling):
@@ -33,26 +35,25 @@ class SPG(object):
         for eps in range(self.max_episodes):
             eps_score = 0
             state = env.reset()
-            #action, log_prob = self.choose_action(state, env)
+            action, log_prob = self.choose_action(state, env)
             
             for step in range(self.max_ep_steps):
                 action, log_prob = self.choose_action(state, env)
-                next_state, reward, done, _ = env.step(action.detach().numpy())
+                next_state, reward, done, _ = env.step(action)
                 next_action, next_log_prob = self.choose_action(next_state, env)
-                
+ 
+                reward *= self.reward_scaling
+ 
                 eps_score += reward
-                
-                self.learn(state, action, reward, next_state, next_action.detach(), log_prob, done)
-                
+                self.learn(state, action, reward, next_state, \
+                    next_action, log_prob, done)
+ 
                 state = next_state
-                #action = next_action.clone()
-                #log_prob = next_log_prob.clone()
-                
+ 
                 if done:
-                    # print reward for episode
                     print('Episode {}\tlength: {}\treward: {}'.format(eps, step+1, eps_score))
                     break
-
+ 
         
     def choose_action(self, state, env):
         mean = self.actor(torch.Tensor(state))
@@ -63,34 +64,47 @@ class SPG(object):
         action = torch.clip(action, \
             float(env.action_space.low[0]), float(env.action_space.high[0]))
         
-        return action, log_prob
+        return action.detach().numpy(), log_prob
            
            
     def learn(self, state, action, reward, next_state, next_action, log_prob, done):
-        qa = torch.cat((torch.Tensor(state), action), dim=-1)
-        nqa = torch.cat((torch.Tensor(next_state), next_action), dim=-1)
-        
+        qa = torch.cat((torch.Tensor(state), \
+            torch.Tensor(action)), dim=-1)
+        nqa = torch.cat((torch.Tensor(next_state), \
+            torch.Tensor(next_action)), dim=-1)
+ 
         q = self.critic(qa)
         next_q = self.critic(nqa)
         
-        actor_loss = self.gamma * q * -log_prob
-        critic_loss = F.mse_loss(reward + self.gamma * next_q * (1-int(done)), q)
+        actor_loss = self.gamma * q.detach() * -log_prob
+        critic_loss = F.mse_loss(reward + self.gamma * next_q.detach() * (1-int(done)), q)
         
         self.actor_optim.zero_grad()
         self.critic_optim.zero_grad()
         
-        (actor_loss.mean() + critic_loss).backward()
+        actor_loss.mean().backward()
+        critic_loss.backward()
         
         self.actor_optim.step()
         self.critic_optim.step()
         
         
 if __name__ == "__main__":
-    #env = gym.make("MountainCarContinuous-v0")
-    env = gym.make("InvertedPendulum-v2")
+    envs = (("InvertedPendulum-v2", 0.1), 
+            ("HalfCheetah-v2", 1),
+            ("Reacher2d-v2", 1),
+            ("Walker2d-v2", 1))
+    env = gym.make(envs[3][0])
+    #print(float(env.action_space.low[0]), float(env.action_space.high[0]))
     model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
         env.action_space.shape[0], 100000, 1000, 1)
     model.train(env)
-
-
-
+    
+    
+    
+    
+    
+    
+    
+    
+    
