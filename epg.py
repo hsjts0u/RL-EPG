@@ -3,12 +3,12 @@
 
 import gym
 import numpy as np
-from itertools import count
-from hessian import hessian
-
 import torch
 import torch.nn as nn
-import torch.optim as optim
+from torch.optim import Adam
+from torch.distributions.normal import Normal
+from itertools import count
+from hessian import hessian
 
 from model import (Actor, Critic)
 
@@ -19,6 +19,25 @@ c = 1.0
 LR = 0.001
 DISCOUNT = 0.99
 MAX_EPISODE = 20
+
+loss = nn.MSELoss()
+
+def hard_update(target, source):
+    """
+    copy paramerters' value from source to target
+    """
+    for target_param, param in zip(target.parameters(), source.parameters()):
+        target_param.data.copy_(param.data)
+
+
+def soft_update(target, source, tau):
+    """
+    Update target network with blended weights from target and source.
+    """
+    for target_param, param in zip(target.parameters(), source.parameters()):
+        target_param.data.copy_(
+            target.param.data * (1.0 - tau) + param.data * tau
+        )
 
 def to_numpy(var):
     """
@@ -42,26 +61,34 @@ def Get_Covariance(Q, a):
     return sigma_0 * torch.exp(c * H)
 
 class EPG(object):
-    def __init__(self, n_states, n_actions):
+    def __init__(self, n_states, n_actions, action_high, action_low):
         self.lr = lr
         self.n_states = n_states
         self.n_actions = n_actions
         self.std = sigma_0
+        self.action_high = action_high
+        self.action_low = action_low
 
         self.actor = Actor(self.n_states, self.n_actions)
-        self.critic = Critic(self.n_states, self.n_actions)
-
         self.actor_optim  = Adam(self.actor.parameters(), lr=LR)
+
+        self.critic = Critic(self.n_states, self.n_actions)
         self.critic_optim  = Adam(self.critic.parameters(), lr=LR)
+
+        self.batch_size = BATCH_SIZE
+        self.discount = DISCOUNT
+        self.tau = TAU
+        self.ignore_step = 10000
+        self.memory = SequentialMemory(limit=RMSIZE, window_length=WINDOW_LEN)
+        self.random_process = OUProcess(size=self.nb_actions, theta=OU_PSI,
+                                        mu=0.0, sigma=OU_SIGMA)
+
+        self.is_training = True
+        self.s_t = None
+        self.a_t = None
         
         if USE_CUDA:
             self.cuda()
-
-    def select_action(self, mu):
-        action = torch.normal(mean=mu, std=self.std, size=1)
-        return torch.clamp(action, 
-            min=float(env.action_space.low[0]), 
-            max=float(env.action_space.high[0]))
 
     def eval(self):
         self.actor.eval()
@@ -69,7 +96,9 @@ class EPG(object):
 
     def cuda(self):
         self.actor.cuda()
+        self.actor_target.cuda()
         self.critic.cuda()
+        self.critic_target.cuda()
 
     def save_model(self):
         torch.save(self.actor.state_dict(), './epg/actor.pth')
@@ -84,6 +113,15 @@ class EPG(object):
         if self.USE_CUDA:
             torch.cuda.manual_seed(s)
 
+    def select_action(self, state):
+        mu = self.actor(to_tensor(state)) * self.action_high
+        action_dis = Normal(mu, self.std)
+        action = action_dist.sample()
+
+        return torch.clamp(action, 
+            min=self.action_low, 
+            max=self.action_high)
+
     def train(self, env, ewma_threshold):
         
         ewma_reward = 0
@@ -91,13 +129,10 @@ class EPG(object):
 
         for episode in range(MAX_EPISODE):
             state = env.reset()
-            episode_reward = 0
+            ep_reward = 0
             gamma_accum = 1
             for step in range(10000):
-                # state = torch.from_numpy(state).float().unsqueeze(0)
-                # mu = model.actor(state)
-                mu = self.actor(to_tensor(state))
-                action = self.select_action(mu.item())
+                action = self.select_action(state)
 
                 Q = self.critic(torch.cat((state, action), dim=1))
                 g_t = gamma_accum * Gauss_integral(Q, s, mu)
@@ -110,12 +145,12 @@ class EPG(object):
                 
                 new_state, reward, done, _ = env.step(action.item())
 
-                episode_reward += reward
+                ep_reward += reward
                 gamma_accum *= DISCOUNT
                 state = new_state
 
-            ewma_reward = 0.05 * episode_reward + (1 - 0.05) * ewma_reward
-            print(f'Episode {episode}\tlength: {step}\treward: {episode_reward}\t ewma reward: {ewma_reward}')
+            ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
+            print(f'Episode {episode}\tlength: {step}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
 
             if ewma_reward > ewma_threshold:
                 self.save_model()
@@ -151,7 +186,7 @@ if __name__ == '__main__':
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
     # for e in env_list:
-    env = gym.make(env_list[0])
+    env = gym.make('MountainCar-v0')
     env.seed(random_seed)
 
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
@@ -159,7 +194,8 @@ if __name__ == '__main__':
     action_dim = env.action_space.n if discrete else env.action_space.shape[0]
 
     torch.manual_seed(random_seed)
-    model = EPG(observation_dim, action_dim)
+    model = EPG(observation_dim, action_dim, 
+                env.action_space.high[0], env.action_space.low[0])
 
     model.train(env, ewma_threshold, lr)
     model.test(env)
