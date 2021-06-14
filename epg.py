@@ -62,7 +62,6 @@ def Get_Covariance(Q, a):
 
 class EPG(object):
     def __init__(self, n_states, n_actions, action_high, action_low):
-        self.lr = lr
         self.n_states = n_states
         self.n_actions = n_actions
         self.std = sigma_0
@@ -74,14 +73,6 @@ class EPG(object):
 
         self.critic = Critic(self.n_states, self.n_actions)
         self.critic_optim  = Adam(self.critic.parameters(), lr=LR)
-
-        self.batch_size = BATCH_SIZE
-        self.discount = DISCOUNT
-        self.tau = TAU
-        self.ignore_step = 10000
-        self.memory = SequentialMemory(limit=RMSIZE, window_length=WINDOW_LEN)
-        self.random_process = OUProcess(size=self.nb_actions, theta=OU_PSI,
-                                        mu=0.0, sigma=OU_SIGMA)
 
         self.is_training = True
         self.s_t = None
@@ -113,10 +104,9 @@ class EPG(object):
         if self.USE_CUDA:
             torch.cuda.manual_seed(s)
 
-    def select_action(self, state):
-        mu = self.actor(to_tensor(state)) * self.action_high
+    def select_action(self, mu):
         action_dis = Normal(mu, self.std)
-        action = action_dist.sample()
+        action = action_dis.sample()
 
         return torch.clamp(action, 
             min=self.action_low, 
@@ -132,16 +122,16 @@ class EPG(object):
             ep_reward = 0
             gamma_accum = 1
             for step in range(10000):
-                action = self.select_action(state)
-
-                Q = self.critic(torch.cat((state, action), dim=1))
-                g_t = gamma_accum * Gauss_integral(Q, s, mu)
+                mu = self.actor(to_tensor(state)) * self.action_high
+                action = self.select_action(mu)
+                Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
+                g_t = gamma_accum * Gauss_integral(Q, state, mu.item())
 
                 self.actor_optim.zero_grad()
                 g_t.backward()
                 self.actor_optim.step()
 
-                self.std = Get_Covariance(Q, a)
+                self.std = Get_Covariance(Q, action)
                 
                 new_state, reward, done, _ = env.step(action.item())
 
@@ -186,7 +176,7 @@ if __name__ == '__main__':
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
     # for e in env_list:
-    env = gym.make('MountainCar-v0')
+    env = gym.make('MountainCarContinuous-v0')
     env.seed(random_seed)
 
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
@@ -196,6 +186,6 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     model = EPG(observation_dim, action_dim, 
                 env.action_space.high[0], env.action_space.low[0])
-
-    model.train(env, ewma_threshold, lr)
+    ewma_threshold = 200
+    model.train(env, ewma_threshold)
     model.test(env)
