@@ -56,7 +56,7 @@ class SPG(object):
  
         
     def choose_action(self, state, env):
-        mean = self.actor(torch.Tensor(state))
+        mean = self.actor(torch.Tensor(state)) * env.action_space.high[0]
         action_dist = Normal(mean, 0.2)
         action = action_dist.sample()
         log_prob = action_dist.log_prob(action)
@@ -94,7 +94,7 @@ if __name__ == "__main__":
             ("HalfCheetah-v2", 1),
             ("Reacher2d-v2", 1),
             ("Walker2d-v2", 1))
-    env = gym.make(envs[3][0])
+    env = gym.make(envs[0][0])
     #print(float(env.action_space.low[0]), float(env.action_space.high[0]))
     model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
         env.action_space.shape[0], 100000, 1000, 1)
