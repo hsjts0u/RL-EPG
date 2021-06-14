@@ -35,7 +35,6 @@ class SPG(object):
         for eps in range(self.max_episodes):
             eps_score = 0
             state = env.reset()
-            action, log_prob = self.choose_action(state, env)
             
             for step in range(self.max_ep_steps):
                 action, log_prob = self.choose_action(state, env)
