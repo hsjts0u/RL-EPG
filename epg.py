@@ -6,9 +6,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torch.autograd.functional import hessian
 from torch.distributions.normal import Normal
+from torch.distributions.multivariate_normal import MultivariateNormal
 from itertools import count
-from hessian import hessian
+# from hessian import hessian
 
 from model import (Actor, Critic)
 
@@ -56,15 +58,16 @@ def Gauss_integral(Q, mu):
     I = mu * Q
     return I
 
-def Get_Covariance(Q, a):
-    H = hessian(Q, a)
-    return sigma_0 * torch.exp(c * H)
+def Get_Covariance(critic, state, a):
+    Q_function = lambda action: critic(torch.cat((to_tensor(state), action)))
+    H = hessian(Q_function, a)
+    return sigma_0 * torch.exp(c * H).squeeze(0)
 
 class EPG(object):
     def __init__(self, n_states, n_actions, action_high, action_low):
         self.n_states = n_states
         self.n_actions = n_actions
-        self.std = sigma_0
+        self.std = torch.tensor([sigma_0])
         self.discount = DISCOUNT
         self.action_high = action_high
         self.action_low = action_low
@@ -106,7 +109,10 @@ class EPG(object):
             torch.cuda.manual_seed(s)
 
     def select_action(self, mu):
-        action_dis = Normal(mu, self.std)
+        if mu.ndimension() == 1:
+            action_dis = Normal(mu, self.std)
+        else:
+            action_dis = MultivariateNormal(mu, self.std)
         action = action_dis.sample()
 
         return torch.clamp(action, 
@@ -126,22 +132,27 @@ class EPG(object):
                 action = self.select_action(mu)
                 Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
                 
-                g_t = gamma_accum * Gauss_integral(Q, mu.item())
+                # g_t = gamma_accum * Gauss_integral(Q, mu)
+                g_t = gamma_accum * Q
 
                 self.actor_optim.zero_grad()
                 g_t.backward()
                 self.actor_optim.step()
 
-                self.std = Get_Covariance(Q, action)
-                
-                new_state, reward, done, _ = env.step(action.item())
+                self.std = Get_Covariance(self.critic, state, action)
+                # self.std = 0.5
+                new_state, reward, done, _ = env.step(to_numpy(action))
 
                 next_q = self.critic(
                     torch.cat((
                         to_tensor(new_state), 
                         self.actor(to_tensor(new_state)).detach()
-                    ), dim=1))
+                    ), dim=-1))
                 target_q = reward + self.discount * done * next_q
+
+                action = self.select_action(mu)
+                Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
+                
                 critic_loss = loss(Q, target_q)
 
                 self.critic_optim.zero_grad()
