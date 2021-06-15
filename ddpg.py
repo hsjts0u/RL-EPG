@@ -146,7 +146,6 @@ class DDPG:
         state_batch, action_batch, reward_batch, next_state_batch, \
             terminal_batch = self.memory.sample_and_split(self.batch_size)
 
-        # print(state_batch.shape)
         next_q_values = self.critic_target(
             torch.cat((
                 to_tensor(next_state_batch),
@@ -163,19 +162,18 @@ class DDPG:
             (to_tensor(state_batch), to_tensor(action_batch)), dim=1))
 
         value_loss = loss(q_batch, target_q_batch)
+        self.critic_optim.zero_grad()
         value_loss.backward()
         self.critic_optim.step()
-        self.critic_optim.zero_grad()
 
         policy_loss = -self.critic(torch.cat(
             (to_tensor(state_batch), self.actor(to_tensor(state_batch))),
             dim=1))
 
         policy_loss = policy_loss.mean()
-        policy_loss.backward()
-        # print("{vl} {pl}".format(vl=value_loss.item(), pl=policy_loss.item()))
-        self.actor_optim.step()
         self.actor_optim.zero_grad()
+        policy_loss.backward()
+        self.actor_optim.step()
 
         soft_update(self.actor_target, self.actor, self.tau)
         soft_update(self.critic_target, self.critic, self.tau)
