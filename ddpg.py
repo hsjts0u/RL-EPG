@@ -129,7 +129,7 @@ class DDPG:
         )
 
         self.critic.load_state_dict(
-            torch.load('{}/actor.pth'.format(output))
+            torch.load('{}/critic.pth'.format(output))
         )
 
     def save_model(self, output):
@@ -183,6 +183,7 @@ class DDPG:
         episode = 0
         episode_steps = 0
         episode_reward = 0
+        ewma_rewards = 0.0
         observation = None
         while episode < num_iter:
             if observation is None:
@@ -216,8 +217,10 @@ class DDPG:
                     False
                 )
 
+                ewma_rewards = 0.05 * episode_reward + 0.95 * ewma_rewards
+
                 if episode % 100 == 0:
-                    print(f"step {step} episode {episode} got {episode_reward} rewards in {episode_steps}")
+                    print(f"step {step} episode {episode} got {ewma_rewards}")
                 
                 observation = None
                 episode_reward = 0.0
