@@ -32,6 +32,8 @@ class SPG(object):
         
         
     def train(self, env):
+        ewma_rewards = 0.0
+        
         for eps in range(self.max_episodes):
             eps_score = 0
             state = env.reset()
@@ -40,17 +42,19 @@ class SPG(object):
                 action, log_prob = self.choose_action(state, env)
                 next_state, reward, done, _ = env.step(action)
                 next_action, next_log_prob = self.choose_action(next_state, env)
- 
-                reward *= self.reward_scaling
- 
+                
                 eps_score += reward
+                reward *= self.reward_scaling
+                
                 self.learn(state, action, reward, next_state, \
                     next_action, log_prob, done)
  
                 state = next_state
  
                 if done:
-                    print('Episode {}\tlength: {}\treward: {}'.format(eps, step+1, eps_score))
+                    ewma_rewards = 0.05 * eps_score + 0.95 * ewma_rewards
+                    if (eps % 100) == 0:
+                        print('Episode {}\tlength: {}\tewma_reward: {}'.format(eps, step+1, ewma_rewards))
                     break
  
         
@@ -94,9 +98,10 @@ if __name__ == "__main__":
             ("Reacher2d-v2", 1),
             ("Walker2d-v2", 1))
     env = gym.make(envs[0][0])
+    env.seed(20)
     #print(float(env.action_space.low[0]), float(env.action_space.high[0]))
     model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
-        env.action_space.shape[0], 100000, 1000, 1)
+        env.action_space.shape[0], 100000, 1000, envs[0][1])
     model.train(env)
     
     
