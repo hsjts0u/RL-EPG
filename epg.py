@@ -52,7 +52,7 @@ def to_tensor(ndarray, requires_grad=False, dtype=torch.float32):
     return torch.tensor(torch.from_numpy(ndarray),
                         dtype=dtype, requires_grad=requires_grad)
 
-def Gauss_integral(Q, state, mu):
+def Gauss_integral(Q, mu):
     I = mu * Q
     return I
 
@@ -65,6 +65,7 @@ class EPG(object):
         self.n_states = n_states
         self.n_actions = n_actions
         self.std = sigma_0
+        self.discount = DISCOUNT
         self.action_high = action_high
         self.action_low = action_low
 
@@ -115,7 +116,6 @@ class EPG(object):
     def train(self, env, ewma_threshold):
         
         ewma_reward = 0
-        DISCOUNT = 0.999
 
         for episode in range(MAX_EPISODE):
             state = env.reset()
@@ -125,7 +125,8 @@ class EPG(object):
                 mu = self.actor(to_tensor(state)) * self.action_high
                 action = self.select_action(mu)
                 Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
-                g_t = gamma_accum * Gauss_integral(Q, state, mu.item())
+                
+                g_t = gamma_accum * Gauss_integral(Q, mu.item())
 
                 self.actor_optim.zero_grad()
                 g_t.backward()
@@ -135,8 +136,20 @@ class EPG(object):
                 
                 new_state, reward, done, _ = env.step(action.item())
 
+                next_q = self.critic(
+                    torch.cat((
+                        to_tensor(new_state), 
+                        self.actor(to_tensor(new_state)).detach()
+                    ), dim=1))
+                target_q = reward + self.discount * done * next_q
+                critic_loss = loss(Q, target_q)
+
+                self.critic_optim.zero_grad()
+                critic_loss.backward()
+                self.critic_optim.step()
+
                 ep_reward += reward
-                gamma_accum *= DISCOUNT
+                gamma_accum *= self.discount
                 state = new_state
 
             ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
