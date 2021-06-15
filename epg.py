@@ -10,7 +10,6 @@ from torch.autograd.functional import hessian
 from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 from itertools import count
-# from hessian import hessian
 
 from model import (Actor, Critic)
 
@@ -54,10 +53,6 @@ def to_tensor(ndarray, requires_grad=False, dtype=torch.float32):
     return torch.tensor(torch.from_numpy(ndarray),
                         dtype=dtype, requires_grad=requires_grad)
 
-def Gauss_integral(Q, mu):
-    I = mu * Q
-    return I
-
 def Get_Covariance(critic, state, a):
     Q_function = lambda action: critic(torch.cat((to_tensor(state), action)))
     H = hessian(Q_function, a)
@@ -95,13 +90,26 @@ class EPG(object):
         self.critic.cuda()
         self.critic_target.cuda()
 
-    def save_model(self):
-        torch.save(self.actor.state_dict(), './epg/actor.pth')
-        torch.save(self.critic.state_dict(), './epg/critic.pth')
+    def save_model(self, output):
+        torch.save(
+            self.actor.state_dict(), 
+            f'./{output}/epg_actor.pth'
+        )
+        torch.save(
+            self.critic.state_dict(), 
+            f'./{output}/epg_critic.pth'
+        )
 
-    def load_weights(self):
-        self.actor.load_state_dict(torch.load('./epg/actor.pth'))
-        self.critic.load_state_dict(torch.load('./epg/actor.pth'))
+    def load_weights(self, output):
+        if output is None:
+            return
+
+        self.actor.load_state_dict(
+            torch.load(f'./{output}/epg_actor.pth')
+        )
+        self.critic.load_state_dict(
+            torch.load(f'./{output}/epg_actor.pth')
+        )
 
     def seed(self, s):
         torch.manual_seed(s)
@@ -119,7 +127,7 @@ class EPG(object):
             min=self.action_low, 
             max=self.action_high)
 
-    def train(self, env, ewma_threshold):
+    def train(self, env):
         
         ewma_reward = 0
 
@@ -132,7 +140,6 @@ class EPG(object):
                 action = self.select_action(mu)
                 Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
                 
-                # g_t = gamma_accum * Gauss_integral(Q, mu)
                 g_t = gamma_accum * Q
 
                 self.actor_optim.zero_grad()
@@ -140,7 +147,6 @@ class EPG(object):
                 self.actor_optim.step()
 
                 self.std = Get_Covariance(self.critic, state, action)
-                # self.std = 0.5
                 new_state, reward, done, _ = env.step(to_numpy(action))
 
                 next_q = self.critic(
@@ -163,14 +169,12 @@ class EPG(object):
                 gamma_accum *= self.discount
                 state = new_state
 
-            ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
-            print(f'Episode {episode}\tlength: {step}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
-
-            if ewma_reward > ewma_threshold:
-                self.save_model()
-                print(f"Solved! Running reward is now {ewma_reward} and the last episode runs to {t} time steps!")
-                break
-
+                if done:
+                    ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
+                    self.save_model()
+                    if episode % 100 == 0:
+                        print(f'Episode {episode}\tlength: {step+1}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
+                    break
 
     def test(self, env, n_episodes=10):
         
@@ -199,7 +203,7 @@ if __name__ == '__main__':
     random_seed = 20
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
-    # for e in env_list:
+    
     env = gym.make('InvertedPendulum-v2')
     env.seed(random_seed)
 
@@ -210,6 +214,6 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     model = EPG(observation_dim, action_dim, 
                 env.action_space.high[0], env.action_space.low[0])
-    ewma_threshold = 200
-    model.train(env, ewma_threshold)
-    model.test(env)
+    
+    model.train(env)
+    # model.test(env)
