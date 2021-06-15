@@ -33,12 +33,15 @@ class SPG(object):
         
     def train(self, env):
         ewma_rewards = 0.0
+        step_count = 0
         
         for eps in range(self.max_episodes):
             eps_score = 0
             state = env.reset()
             
             for step in range(self.max_ep_steps):
+                step_count += 1
+                
                 action, log_prob = self.choose_action(state, env)
                 next_state, reward, done, _ = env.step(action)
                 next_action, next_log_prob = self.choose_action(next_state, env)
@@ -54,7 +57,8 @@ class SPG(object):
                 if done:
                     ewma_rewards = 0.05 * eps_score + 0.95 * ewma_rewards
                     if (eps % 100) == 0:
-                        print('Episode {}\tlength: {}\tewma_reward: {}'.format(eps, step+1, ewma_rewards))
+                        print('Steps {}\tEpisode {}\tlength: {}\tewma_reward: {}'.format(\
+                            step_count, eps, step+1, ewma_rewards))
                     break
  
         
