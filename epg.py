@@ -180,7 +180,7 @@ if __name__ == '__main__':
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
     
-    env = gym.make('MountainCarContinuous-v0')
+    env = gym.make('InvertedPendulum-v2')
     env.seed(random_seed)
 
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
