@@ -121,7 +121,7 @@ if __name__ == "__main__":
     f = open("spg_inverted_pendulum.txt", "w")
     f.close()
     curves = []
-    for i in range(2):
+    for i in range(40):
         model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
             env.action_space.shape[0], 100_000, 1000, envs[0][1], 100_000)
         data = model.train(env)
