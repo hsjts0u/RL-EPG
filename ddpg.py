@@ -12,6 +12,7 @@ from copy import deepcopy
 from model import (Actor, Critic)
 from memory import SequentialMemory
 from random_process import OUProcess
+from graphing import learning_curve
 
 
 USE_CUDA = torch.cuda.is_available()
@@ -52,10 +53,12 @@ def to_numpy(var):
     """
     return var.cpu().data.numpy() if USE_CUDA else var.data.numpy()
 
-def to_tensor(ndarray, requires_grad=False, dtype=torch.float32):
+def to_tensor(ndarray, requires_grad=False, numpy_dtype=np.float32):
     """ turn numpy array to pytorch tensor  """
-    return torch.tensor(torch.from_numpy(ndarray),
-                        dtype=dtype, requires_grad=requires_grad)
+    t = torch.from_numpy(ndarray.astype(numpy_dtype))
+    if requires_grad:
+        t.requires_grad_()
+    return t
         
 class DDPG:
     def __init__(self, nb_states, nb_actions, action_high, action_low):
@@ -178,14 +181,16 @@ class DDPG:
         soft_update(self.actor_target, self.actor, self.tau)
         soft_update(self.critic_target, self.critic, self.tau)
 
-    def train(self, num_iter, env, output, max_episode_length=None):
-        step = 0
+    def train(self, max_step, env, output, max_episode_length=None):
+        step = -self.ignore_step
         episode = 0
         episode_steps = 0
         episode_reward = 0
         ewma_rewards = 0.0
         observation = None
-        while episode < num_iter:
+        graph_data = []
+        
+        while step < max_step:
             if observation is None:
                 observation = deepcopy(env.reset())
                 self.reset(observation)
@@ -198,16 +203,17 @@ class DDPG:
                 done = True
 
             self.observe(reward, observ2, done)
-            if step > self.ignore_step:
+            if step >= 0:
                 self.update_policy()
 
-            if step % int(num_iter/3) == 0:
+            if step >= 0 and step % int(max_step/3) == 0:
                 self.save_model(output)
 
             step += 1
             episode_steps += 1
             episode_reward += reward
             observation = deepcopy(observ2)
+
 
             if done:
                 self.memory.append(
@@ -219,22 +225,34 @@ class DDPG:
 
                 ewma_rewards = 0.05 * episode_reward + 0.95 * ewma_rewards
 
-                if episode % 100 == 0:
-                    print(f"step {step} episode {episode} got {ewma_rewards}")
+                if step >= 0:
+                    if episode % 100 == 0:
+                        print(f"step {step} episode {episode} got {ewma_rewards}")
+                    graph_data.append((step, episode_reward))
                 
                 observation = None
                 episode_reward = 0.0
                 episode_steps = 0
                 episode += 1
 
+        return graph_data
+
+
 if __name__ == '__main__':
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
 
     env = gym.make(env_list[1])
-    env.seed(20)
-    ddpg = DDPG(env.observation_space.shape[0], env.action_space.shape[0],
-                env.action_space.high[0], env.action_space.low[0])
-    # ddpg.load_weights("ddpg_ip")
-    ddpg.train(10000, env, "ddpg_ip", max_episode_length=1000)
+    env.seed(35)
+
+    graph_data = []
+    runs = 3
+    for _ in range(runs):
+        env.reset()
+        ddpg = DDPG(env.observation_space.shape[0], env.action_space.shape[0],
+                    env.action_space.high[0], env.action_space.low[0])
+        run  = ddpg.train(100000, env, "ddpg_ip", max_episode_length=1000)
+        graph_data.append(run)
+    
+    learning_curve(data=graph_data, filename="ddpg.png", dest="ddpg_ip/")
     print("done")
