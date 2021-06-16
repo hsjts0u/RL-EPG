@@ -38,11 +38,11 @@ class SPG(object):
         for eps in range(self.max_episodes):
             eps_score = 0
             state = env.reset()
+            action, log_prob = self.choose_action(state, env)
             
             for step in range(self.max_ep_steps):
                 step_count += 1
                 
-                action, log_prob = self.choose_action(state, env)
                 next_state, reward, done, _ = env.step(action)
                 next_action, next_log_prob = self.choose_action(next_state, env)
                 
@@ -53,6 +53,8 @@ class SPG(object):
                     next_action, log_prob, done)
  
                 state = next_state
+                action = next_action
+                log_prob = next_log_prob
  
                 if done:
                     ewma_rewards = 0.05 * eps_score + 0.95 * ewma_rewards
@@ -105,7 +107,7 @@ if __name__ == "__main__":
     env.seed(20)
     #print(float(env.action_space.low[0]), float(env.action_space.high[0]))
     model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
-        env.action_space.shape[0], 100000, 1000, envs[0][1])
+        env.action_space.shape[0], 100_000, 1000, envs[0][1])
     model.train(env)
     
     
