@@ -126,7 +126,7 @@ if __name__ == "__main__":
             env.action_space.shape[0], 100_000, 1000, envs[0][1], 100_000)
         data = model.train(env)
         #curves.append(data)
-        save_learning_curve(data, "spg_inverted_pendulum.txt")
+        save_learning_curve(data, "spg_inverted_pendulum.txt", "ddpg_ip")
     
     
     #learning_curve(curves, "spg-InvertedPendulum", "./spg")
