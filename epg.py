@@ -25,8 +25,15 @@ TOTAL_STEP = 1000000
 
 loss = nn.MSELoss()
 
+def to_tensor(ndarray, requires_grad=False, numpy_dtype=np.float32):
+    """ turn numpy array to pytorch tensor  """
+    t = torch.from_numpy(ndarray.astype(numpy_dtype))
+    if requires_grad:
+        t.requires_grad_()
+    return t
+
 def Get_Covariance(critic, state, m):
-    Q_function = lambda mu: critic(torch.cat((torch.Tensor(state), mu)))
+    Q_function = lambda mu: critic(torch.cat((to_tensor(state), mu)))
     H = hessian(Q_function, m)
     return sigma_0 * torch.exp(c * H).squeeze(0)
 
@@ -34,7 +41,7 @@ class EPG(object):
     def __init__(self, n_states, n_actions, action_high, action_low):
         self.n_states = n_states
         self.n_actions = n_actions
-        self.std = torch.tensor([sigma_0])
+        self.std = None
         self.discount = DISCOUNT
         self.total_step = TOTAL_STEP
         self.action_high = action_high
@@ -45,10 +52,6 @@ class EPG(object):
 
         self.critic = Critic(self.n_states, self.n_actions)
         self.critic_optim  = Adam(self.critic.parameters(), lr=LR)
-
-        self.is_training = True
-        self.s_t = None
-        self.a_t = None
         
         if USE_CUDA:
             self.cuda()
@@ -90,10 +93,13 @@ class EPG(object):
             torch.cuda.manual_seed(s)
 
     def select_action(self, mu):
+        # print(mu.ndimension())
+        # print(self.std)
+        mu = mu.detach()
         if mu.ndimension() == 1:
             action_dis = Normal(mu, self.std)
         else:
-            action_dis = MultivariateNormal(mu, self.std)
+            action_dis = MultivariateNormal(mu, torch.mm(self.std, self.std))
         action = action_dis.sample()
 
         return torch.clamp(action, 
@@ -118,31 +124,33 @@ class EPG(object):
             for step in range(10000):
                 step_count += 1
 
-                mu = self.actor(torch.Tensor(state)) * self.action_high
-                
-                Q = self.critic(torch.cat((torch.Tensor(state), mu), dim=-1))
-                
-                g_t = gamma_accum * Q
+                mu = self.actor(to_tensor(state)) * self.action_high
+                # print(to_tensor(state))
+                # print(mu)
+                Q = self.critic(torch.cat((to_tensor(state), mu), dim=-1))
+                g_t = gamma_accum * (-Q)
+
 
                 self.actor_optim.zero_grad()
                 g_t.backward()
                 self.actor_optim.step()
 
+
                 self.std = Get_Covariance(self.critic, state, mu)
 
-                mu = self.actor(torch.Tensor(state)) * self.action_high
-                action = self.select_action(mu)
-                
+                mu = self.actor(to_tensor(state)) * self.action_high
+                action = self.select_action(mu).detach()
+
                 new_state, reward, done, _ = env.step(action.detach().numpy())
 
                 next_q = self.critic(
                     torch.cat((
-                        torch.Tensor(new_state), 
-                        self.actor(torch.Tensor(new_state)).detach()
+                        to_tensor(new_state), 
+                        self.actor(to_tensor(new_state)).detach()
                     ), dim=-1))
                 target_q = reward + self.discount * done * next_q
 
-                Q = self.critic(torch.cat((torch.Tensor(state), action), dim=-1))
+                Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
                 
                 critic_loss = loss(Q, target_q)
 
@@ -158,6 +166,8 @@ class EPG(object):
                     episode_reward_list.append((step_count, ep_reward))
                     ewma_reward = 0.05 * ep_reward + 0.95 * ewma_reward
                     # self.save_model()
+                    if episode % 10 == 0:
+                        print(mu)
                     if episode % 100 == 0:
                         print(f'Episode {episode}\tlength: {step+1}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
                     break
@@ -166,11 +176,11 @@ class EPG(object):
 
 
 if __name__ == '__main__':
-    random_seed = 20
+    random_seed = 30
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
     
-    env = gym.make('InvertedPendulum-v2')
+    env = gym.make('MountainCarContinuous-v0')
     env.seed(random_seed)
 
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
@@ -180,7 +190,6 @@ if __name__ == '__main__':
     torch.manual_seed(random_seed)
     model = EPG(observation_dim, action_dim, 
                 env.action_space.high[0], env.action_space.low[0])
-    
     episode_reward_list = model.train(env)
     learning_curve([episode_reward_list], "epg")
     # model.test(env)
