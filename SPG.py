@@ -65,7 +65,7 @@ class SPG(object):
                             step_count, eps, step+1, ewma_rewards))
                     break
             
-        learning_curve([graph_data], "SPG")
+        return graph_data
         
         
     def choose_action(self, state, env):
@@ -99,7 +99,16 @@ class SPG(object):
         self.actor_optim.step()
         self.critic_optim.step()
         
-        
+
+def save_learning_curve(data, file_name):
+    """ data should be list of (step, episode_rewards) """
+    f = open(file_name, "a")
+    f.write('[ ')
+    for step, reward in data:
+        f.write(f"({step}, {reward}),")
+    f.write(']\n')
+    f.close()
+
 if __name__ == "__main__":
     envs = (("InvertedPendulum-v2", 0.1), 
             ("HalfCheetah-v2", 1),
@@ -107,11 +116,20 @@ if __name__ == "__main__":
             ("Walker2d-v2", 1))
     env = gym.make(envs[0][0])
     env.seed(20)
-    #print(float(env.action_space.low[0]), float(env.action_space.high[0]))
-    model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
-        env.action_space.shape[0], 100_000, 1000, envs[0][1], 100_000)
-    model.train(env)
     
+    
+    f = open("spg_inverted_pendulum.txt", "w")
+    f.close()
+    curves = []
+    for i in range(2):
+        model = SPG(0.001, 0.001, 0.9, env.observation_space.shape[0],\
+            env.action_space.shape[0], 100_000, 1000, envs[0][1], 100_000)
+        data = model.train(env)
+        #curves.append(data)
+        save_learning_curve(data, "spg_inverted_pendulum.txt")
+    
+    
+    #learning_curve(curves, "spg-InvertedPendulum", "./spg")
     
     
     
