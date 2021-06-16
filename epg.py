@@ -12,6 +12,7 @@ from torch.distributions.multivariate_normal import MultivariateNormal
 from itertools import count
 
 from model import (Actor, Critic)
+from graphing import learning_curve
 
 USE_CUDA = torch.cuda.is_available()
 
@@ -19,26 +20,10 @@ sigma_0 = 0.5
 c = 1.0
 LR = 0.001
 DISCOUNT = 0.99
-MAX_EPISODE = 20
+MAX_EPISODE = 25000
+TOTAL_STEP = 1000000
 
 loss = nn.MSELoss()
-
-def hard_update(target, source):
-    """
-    copy paramerters' value from source to target
-    """
-    for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(param.data)
-
-
-def soft_update(target, source, tau):
-    """
-    Update target network with blended weights from target and source.
-    """
-    for target_param, param in zip(target.parameters(), source.parameters()):
-        target_param.data.copy_(
-            target.param.data * (1.0 - tau) + param.data * tau
-        )
 
 def to_numpy(var):
     """
@@ -64,6 +49,7 @@ class EPG(object):
         self.n_actions = n_actions
         self.std = torch.tensor([sigma_0])
         self.discount = DISCOUNT
+        self.total_step = TOTAL_STEP
         self.action_high = action_high
         self.action_low = action_low
 
@@ -130,12 +116,21 @@ class EPG(object):
     def train(self, env):
         
         ewma_reward = 0
+        step_count = 0
+        episode_reward_list = []
 
         for episode in range(MAX_EPISODE):
+
+            if step_count >= self.total_step:
+                break
+
             state = env.reset()
             ep_reward = 0
             gamma_accum = 1
+            step = 0
             for step in range(10000):
+                step_count += 1
+
                 mu = self.actor(to_tensor(state)) * self.action_high
                 action = self.select_action(mu)
                 Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
@@ -170,11 +165,14 @@ class EPG(object):
                 state = new_state
 
                 if done:
-                    ewma_reward = 0.05 * ep_reward + (1 - 0.05) * ewma_reward
-                    self.save_model()
+                    episode_reward_list.append((step_count, ep_reward))
+                    ewma_reward = 0.05 * ep_reward + 0.95 * ewma_reward
+                    # self.save_model()
                     if episode % 100 == 0:
                         print(f'Episode {episode}\tlength: {step+1}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
                     break
+
+        return episode_reward_list
 
     def test(self, env, n_episodes=10):
         
@@ -204,7 +202,7 @@ if __name__ == '__main__':
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
                 'Reacher2d-v2', 'Walker2d-v2']
     
-    env = gym.make('InvertedPendulum-v2')
+    env = gym.make('MountainCarContinuous-v0')
     env.seed(random_seed)
 
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
@@ -215,5 +213,6 @@ if __name__ == '__main__':
     model = EPG(observation_dim, action_dim, 
                 env.action_space.high[0], env.action_space.low[0])
     
-    model.train(env)
+    episode_reward_list = model.train(env)
+    learning_curve([episode_reward_list], "epg")
     # model.test(env)
