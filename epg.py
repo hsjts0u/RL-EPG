@@ -25,9 +25,9 @@ TOTAL_STEP = 1000000
 
 loss = nn.MSELoss()
 
-def Get_Covariance(critic, state, a):
-    Q_function = lambda action: critic(torch.cat((to_tensor(state), action)))
-    H = hessian(Q_function, a)
+def Get_Covariance(critic, state, m):
+    Q_function = lambda mu: critic(torch.cat((torch.Tensor(state), mu)))
+    H = hessian(Q_function, m)
     return sigma_0 * torch.exp(c * H).squeeze(0)
 
 class EPG(object):
@@ -119,7 +119,7 @@ class EPG(object):
                 step_count += 1
 
                 mu = self.actor(torch.Tensor(state)) * self.action_high
-                action = self.select_action(mu)
+                
                 Q = self.critic(torch.cat((torch.Tensor(state), mu), dim=-1))
                 
                 g_t = gamma_accum * Q
@@ -128,7 +128,11 @@ class EPG(object):
                 g_t.backward()
                 self.actor_optim.step()
 
-                self.std = Get_Covariance(self.critic, state, action)
+                self.std = Get_Covariance(self.critic, state, mu)
+
+                mu = self.actor(torch.Tensor(state)) * self.action_high
+                action = self.select_action(mu)
+                
                 new_state, reward, done, _ = env.step(action.detach().numpy())
 
                 next_q = self.critic(
@@ -138,8 +142,6 @@ class EPG(object):
                     ), dim=-1))
                 target_q = reward + self.discount * done * next_q
 
-                mu = self.actor(torch.Tensor(state)) * self.action_high
-                action = self.select_action(mu)
                 Q = self.critic(torch.cat((torch.Tensor(state), action), dim=-1))
                 
                 critic_loss = loss(Q, target_q)
@@ -161,28 +163,6 @@ class EPG(object):
                     break
 
         return episode_reward_list
-
-    def test(self, env, n_episodes=10):
-        
-        self.load_weights()
-        
-        render = True
-
-        for episode in range(1, n_episodes+1):
-            state = env.reset()
-            running_reward = 0
-            for t in range(10000):
-                mu = self.actor(torch.Tensor(state))
-                action = self.select_action(mu.item())
-                state, reward, done, _ = env.step(action)
-                running_reward += reward
-                if render:
-                    env.render()
-                if done:
-                    break
-            print(f'Episode {episode}\tReward: {running_reward}')
-
-        env.close()
 
 
 if __name__ == '__main__':
