@@ -25,19 +25,6 @@ TOTAL_STEP = 1000000
 
 loss = nn.MSELoss()
 
-def to_numpy(var):
-    """
-    turn pytorch tensor to numpy array
-    """
-    return var.cpu().data.numpy() if USE_CUDA else var.data.numpy()
-
-def to_tensor(ndarray, requires_grad=False, dtype=torch.float32):
-    """
-    turn numpy array to pytorch tensor
-    """
-    return torch.tensor(torch.from_numpy(ndarray),
-                        dtype=dtype, requires_grad=requires_grad)
-
 def Get_Covariance(critic, state, a):
     Q_function = lambda action: critic(torch.cat((to_tensor(state), action)))
     H = hessian(Q_function, a)
@@ -131,9 +118,9 @@ class EPG(object):
             for step in range(10000):
                 step_count += 1
 
-                mu = self.actor(to_tensor(state)) * self.action_high
+                mu = self.actor(torch.Tensor(state)) * self.action_high
                 action = self.select_action(mu)
-                Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
+                Q = self.critic(torch.cat((torch.Tensor(state), mu), dim=-1))
                 
                 g_t = gamma_accum * Q
 
@@ -142,17 +129,18 @@ class EPG(object):
                 self.actor_optim.step()
 
                 self.std = Get_Covariance(self.critic, state, action)
-                new_state, reward, done, _ = env.step(to_numpy(action))
+                new_state, reward, done, _ = env.step(action.detach().numpy())
 
                 next_q = self.critic(
                     torch.cat((
-                        to_tensor(new_state), 
-                        self.actor(to_tensor(new_state)).detach()
+                        torch.Tensor(new_state), 
+                        self.actor(torch.Tensor(new_state)).detach()
                     ), dim=-1))
                 target_q = reward + self.discount * done * next_q
 
+                mu = self.actor(torch.Tensor(state)) * self.action_high
                 action = self.select_action(mu)
-                Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
+                Q = self.critic(torch.cat((torch.Tensor(state), action), dim=-1))
                 
                 critic_loss = loss(Q, target_q)
 
@@ -184,7 +172,7 @@ class EPG(object):
             state = env.reset()
             running_reward = 0
             for t in range(10000):
-                mu = self.actor(to_tensor(state))
+                mu = self.actor(torch.Tensor(state))
                 action = self.select_action(mu.item())
                 state, reward, done, _ = env.step(action)
                 running_reward += reward
