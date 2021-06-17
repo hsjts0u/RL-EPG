@@ -1,42 +1,45 @@
 # Spring 2021, Reinforcement Learning
 # Team Implementation Project: Expected Policy Gradient
-
+ 
 import gym
 import numpy as np
 import torch
 import torch.nn as nn
+import numdifftools as nd
 from torch.optim import Adam
 from torch.autograd.functional import hessian
 from torch.distributions.normal import Normal
 from torch.distributions.multivariate_normal import MultivariateNormal
 from itertools import count
-
+ 
 from model import (Actor, Critic)
 from graphing import learning_curve
-
+ 
 USE_CUDA = torch.cuda.is_available()
-
-sigma_0 = 0.5
+ 
+sigma_0 = 0.2
 c = 1.0
 LR = 0.001
 DISCOUNT = 0.99
-MAX_EPISODE = 25000
-TOTAL_STEP = 1000000
-
+MAX_EPISODE = 1000_000
+TOTAL_STEP = 100_000
+ 
 loss = nn.MSELoss()
-
+ 
 def to_tensor(ndarray, requires_grad=False, numpy_dtype=np.float32):
     """ turn numpy array to pytorch tensor  """
     t = torch.from_numpy(ndarray.astype(numpy_dtype))
     if requires_grad:
         t.requires_grad_()
     return t
-
+ 
 def Get_Covariance(critic, state, m):
-    Q_function = lambda mu: critic(torch.cat((to_tensor(state), mu)))
-    H = hessian(Q_function, m)
-    return sigma_0 * torch.exp(c * H).squeeze(0)
-
+    Q_function = lambda mu: critic(torch.cat((to_tensor(state), to_tensor(mu)))).detach().numpy()
+    #H = hessian(Q_function, m)
+    H = nd.Hessian(Q_function)(m.detach().numpy())
+    #print(H)
+    return sigma_0 * torch.exp(c * to_tensor(H)).squeeze(0)
+ 
 class EPG(object):
     def __init__(self, n_states, n_actions, action_high, action_low):
         self.n_states = n_states
@@ -46,26 +49,26 @@ class EPG(object):
         self.total_step = TOTAL_STEP
         self.action_high = action_high
         self.action_low = action_low
-
+ 
         self.actor = Actor(self.n_states, self.n_actions)
         self.actor_optim  = Adam(self.actor.parameters(), lr=LR)
-
+ 
         self.critic = Critic(self.n_states, self.n_actions)
         self.critic_optim  = Adam(self.critic.parameters(), lr=LR)
         
         if USE_CUDA:
             self.cuda()
-
+ 
     def eval(self):
         self.actor.eval()
         self.critic.eval()
-
+ 
     def cuda(self):
         self.actor.cuda()
         self.actor_target.cuda()
         self.critic.cuda()
         self.critic_target.cuda()
-
+ 
     def save_model(self, output):
         torch.save(
             self.actor.state_dict(), 
@@ -75,106 +78,104 @@ class EPG(object):
             self.critic.state_dict(), 
             f'./{output}/epg_critic.pth'
         )
-
+ 
     def load_weights(self, output):
         if output is None:
             return
-
+ 
         self.actor.load_state_dict(
             torch.load(f'./{output}/epg_actor.pth')
         )
         self.critic.load_state_dict(
             torch.load(f'./{output}/epg_actor.pth')
         )
-
+ 
     def seed(self, s):
         torch.manual_seed(s)
         if self.USE_CUDA:
             torch.cuda.manual_seed(s)
-
+ 
     def select_action(self, mu):
-        # print(mu.ndimension())
-        # print(self.std)
         mu = mu.detach()
-        if mu.ndimension() == 1:
-            action_dis = Normal(mu, self.std)
+        #print(mu)
+        action_dis = None
+        if self.std.item() == 0:
+            return mu
+        if mu.shape[-1] == 1:
+            action_dis = Normal(mu, torch.sqrt(self.std))
         else:
-            action_dis = MultivariateNormal(mu, torch.mm(self.std, self.std))
+            action_dis = MultivariateNormal(mu, torch.diag(torch.diag(self.std, 0)))
         action = action_dis.sample()
-
         return torch.clamp(action, 
             min=self.action_low, 
             max=self.action_high)
-
+ 
     def train(self, env):
         
         ewma_reward = 0
         step_count = 0
         episode_reward_list = []
-
+ 
         for episode in range(MAX_EPISODE):
-
+ 
             if step_count >= self.total_step:
                 break
-
+ 
             state = env.reset()
             ep_reward = 0
             gamma_accum = 1
             step = 0
             for step in range(10000):
                 step_count += 1
-
+ 
                 mu = self.actor(to_tensor(state)) * self.action_high
-                # print(to_tensor(state))
-                # print(mu)
                 Q = self.critic(torch.cat((to_tensor(state), mu), dim=-1))
                 g_t = gamma_accum * (-Q)
-
-
+                
+ 
                 self.actor_optim.zero_grad()
                 g_t.backward()
                 self.actor_optim.step()
-
-
+ 
+ 
                 self.std = Get_Covariance(self.critic, state, mu)
-
+ 
                 mu = self.actor(to_tensor(state)) * self.action_high
                 action = self.select_action(mu).detach()
-
+                #print(action)
                 new_state, reward, done, _ = env.step(action.detach().numpy())
-
+ 
                 next_q = self.critic(
                     torch.cat((
                         to_tensor(new_state), 
                         self.actor(to_tensor(new_state)).detach()
                     ), dim=-1))
-                target_q = reward + self.discount * done * next_q
-
+                target_q = reward + self.discount * (1 - int(done)) * next_q
+ 
                 Q = self.critic(torch.cat((to_tensor(state), action), dim=-1))
                 
-                critic_loss = loss(Q, target_q)
-
+                critic_loss = loss(Q, target_q.detach())
+                #print(critic_loss)
                 self.critic_optim.zero_grad()
                 critic_loss.backward()
                 self.critic_optim.step()
-
+ 
                 ep_reward += reward
                 gamma_accum *= self.discount
                 state = new_state
-
+ 
                 if done:
                     episode_reward_list.append((step_count, ep_reward))
                     ewma_reward = 0.05 * ep_reward + 0.95 * ewma_reward
                     # self.save_model()
-                    if episode % 10 == 0:
-                        print(mu)
-                    if episode % 100 == 0:
-                        print(f'Episode {episode}\tlength: {step+1}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
+                    print(f'Step {step_count}\tEpisode {episode}\tlength: {step+1}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
+                    #if episode % 100 == 0:
+                     #   print(f'Episode {episode}\tlength: {step+1}\treward: {ep_reward}\t ewma reward: {ewma_reward}')
                     break
-
+ 
         return episode_reward_list
-
-
+ 
+ 
 if __name__ == '__main__':
     random_seed = 30
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
@@ -182,11 +183,11 @@ if __name__ == '__main__':
     
     env = gym.make('InvertedPendulum-v2')
     env.seed(random_seed)
-
+ 
     discrete = isinstance(env.action_space, gym.spaces.Discrete)
     observation_dim = env.observation_space.shape[0]
     action_dim = env.action_space.n if discrete else env.action_space.shape[0]
-
+ 
     torch.manual_seed(random_seed)
     model = EPG(observation_dim, action_dim, 
                 env.action_space.high[0], env.action_space.low[0])
