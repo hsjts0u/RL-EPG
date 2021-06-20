@@ -249,21 +249,20 @@ def save_learning_curve(data, file_name):
     
 if __name__ == '__main__':
     env_list = ['HalfCheetah-v2', 'InvertedPendulum-v2',
-                'Reacher2d-v2', 'Walker2d-v2']
+                'Reacher-v2', 'Walker2d-v2']
 
-    env = gym.make(env_list[0])
+    env = gym.make(env_list[3])
     env.seed(35)
 
-    f = open("ddpg_ip/ddpg_half_cheetah.txt", "w")
-    f.close()
     runs = 40
     graph_data = []
+    
     for _ in range(runs):
         env.reset()
         ddpg = DDPG(env.observation_space.shape[0], env.action_space.shape[0],
                     env.action_space.high[0], env.action_space.low[0])
         run  = ddpg.train(280_000, env, "ddpg_ip", max_episode_length=1000_000)
         # graph_data.append(run)
-        save_learning_curve(run, "ddpg_ip/ddpg_learning_curve.txt")
+        save_learning_curve(run, "ddpg_walker2d/ddpg_learning_curve.txt")
     # learning_curve(data=graph_data, filename="ddpg.png", dest="ddpg_ip/")
     print("done")
