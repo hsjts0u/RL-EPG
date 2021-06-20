@@ -105,5 +105,6 @@ def average_curve(file_list: list, title: str, pic_save_name: str, labels: list,
         x = interval * np.arange(1, mean.shape[0]+1)
         ax.plot(x, mean, label=label, color=color)
         ax.fill_between(x, mean-ci, mean+ci, color=color, alpha=.1)
-        
+
+    ax.legend()
     plt.savefig(pic_save_name)

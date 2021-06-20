@@ -13,7 +13,7 @@ y_lbs = [0, -15, 0, 0]
 init_rws = [0, -50, 0, 0]
 
 
-labels = ['ddpg']
+labels = ['ddpg', 'spg']
 
 for title, fn, xb, yub, ylb, irw in zip(titles, files, x_bs,
                                         y_ubs, y_lbs, init_rws):
