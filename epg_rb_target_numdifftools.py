@@ -73,50 +73,24 @@ class epg:
     
     def expm(self, m):
         """ this function can only handle symmetric matrix in numpy """
-        with torch.no_grad():
-            L, V = torch.symeig(m, eigenvectors=True)
-            L = torch.clamp_max(L, EIGEN_CLIP)
-            expw = torch.exp(2.0 * L)
-            return torch.matmul(V, torch.matmul(expw.diag_embed(),
-        V.transpose(-2, -1)))
+        w, v = np.linalg.eig(m)
+        w = 2.0 * np.clip(w, None, EIGEN_CLIP)
+        expw = np.exp(w)
+        # print(expw)
+        return v @ np.diag(expw) @ v.T
     
     def get_covariance(self, state, mu):
         """ 
-        state : 1d numpy array
-        mu : 1d torch tensor
+        state : 1 x state_dim numpy array
+        mu : 1 x action_dim torch tensor
         return action_dim x action_dim torch tensor
         """
-
-        state_tensor = torch.tensor(state, dtype=torch.float32)
-        # step = nd.step_generators.one_step
         def Qsu(act):
-            return self.critic(torch.cat((state_tensor, torch.tensor(act, dtype=torch.float32)), dim=-1)).detach().numpy().astype(np.float64)
-
-        # def Qsu(act):
-        #    return self.critic(torch.cat((to_tensor(state), to_tensor(act).unsqueeze(0), dim=-1)).squeeze(0).detach().numpy()
+            return self.critic(torch.cat((to_tensor(state), to_tensor(np.array([act]))), dim=-1)).squeeze(0).detach().numpy()
         
-        ############################################################
-        
-        acts = MultivariateNormal(mu.repeat(100, 1), 0.001 * torch.eye(self.action_dim)).sample()
-        qs = self.critic(torch.cat((state_tensor.repeat(100, 1), acts), dim=-1))
-
-        sample_Q = qs.reshape(100, 1)
-        sample_action = torch.transpose(acts, 0, 1)
-        hessian_list = []
-        
-        for i in range(self.action_dim):
-            A = torch.stack([torch.ones(sample_action[i].shape), sample_action[i], torch.square(sample_action[i])], dim=1)
-            X, _ = torch.lstsq(sample_Q, A)
-            hessian_list.append(X[2] * 2)
-        H = torch.diag(torch.cat(hessian_list, dim=0))
-        
-        ############################################################
-
-        mup = mu.detach().numpy().astype(np.float64)
-        # H = nd.Hessian(Qsu)(mup)
-        cov = SIGMA * SIGMA * self.expm(C * H)
-        # cov = SIGMA * SIGMA * self.expm(C * to_tensor(H, numpy_dtype=np.float64))
-        return cov + 0.0001 * torch.eye(self.action_dim, dtype=torch.float64)
+        cH = C * nd.Hessian(Qsu)(mu.squeeze(0).detach().numpy()).astype(np.float64)
+        cov = SIGMA * SIGMA * self.expm(cH)
+        return torch.from_numpy(cov) + 0.01 * torch.eye(self.action_dim, dtype=torch.float64)
         
     def train(self, env, step_limit):
                 
@@ -129,12 +103,15 @@ class epg:
         
         loss = nn.MSELoss()
         
+        
+        
         if IGNORE_STEP > 0:
             print("Ignoring steps...")
             obs = env.reset()
             for step in range(IGNORE_STEP):
-                mu = self.action_mean(obs)
-                action = self.select_action(mu, self.get_covariance(obs, mu)).detach().numpy()
+                nobs = np.array([obs])
+                mu = self.action_mean(nobs)
+                action = self.select_action(mu, self.get_covariance(nobs, mu)).squeeze(0).detach().numpy()
                 new_obs, reward, done, _ = env.step(action)
                 self.memory.append(obs, action, reward, done)
                 obs = deepcopy(new_obs)
@@ -147,8 +124,9 @@ class epg:
             episode_step += 1
             
             # observ
-            mu = self.action_mean(obs)
-            action = self.select_action(mu, self.get_covariance(obs, mu)).detach().numpy()
+            nobs = np.array([obs])
+            mu = self.action_mean(nobs)
+            action = self.select_action(mu, self.get_covariance(nobs, mu)).squeeze(0).detach().numpy()
             
             new_obs, reward, done, _ = env.step(action)
             self.memory.append(obs, action, reward, done)
@@ -215,11 +193,10 @@ def save_learning_curve(data, file_name):
     f.write('0 0\n')
     f.close()
 
-
 if __name__ == '__main__':
-    env_name = 'InvertedPendulum-v2'
-    env = gym.make(env_name)
+    
+    env = gym.make('HalfCheetah-v2')
     for _ in range(20):
         agent = epg(env.observation_space.shape[0], env.action_space.shape[0], env.action_space.high[0])
-        data = agent.train(env, 100_000)
-        save_learning_curve(data, f"epg/epg_rb_target_diag_quadric_{env_name}.txt")
+        data = agent.train(env, 280_000)
+        save_learning_curve(data, "epg/epg_rb_halfcheetah.txt")
