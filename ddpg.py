@@ -206,8 +206,8 @@ class DDPG:
             if step >= 0:
                 self.update_policy()
 
-            if step >= 0 and step % int(max_step/3) == 0:
-                self.save_model(output)
+            # if step >= 0 and step % int(max_step/3) == 0:
+            #    self.save_model(output)
 
             step += 1
             episode_steps += 1

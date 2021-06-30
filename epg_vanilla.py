@@ -130,7 +130,7 @@ class EPG(object):
                 
                 # sample action using mu, cov
                 eig, cov = self.covariance(self.critic, state, mu)
-                eigs.append((step_count,eig))
+                # eigs.append((step_count,eig))
                 action = self.get_action(mu, cov)
                 
                 # calculate Q using state, sampled action

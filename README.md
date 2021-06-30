@@ -1,13 +1,16 @@
 # Expected Policy Gradient
 
-This repo aims to replicate the result of [Expected Policy Gradient]([https://arxiv.org/abs/1706.05374](https://arxiv.org/abs/1706.05374))   with pytorch.
+This repo aims to replicate the result of [Expected Policy Gradient](https://arxiv.org/abs/1706.05374) with pytorch.
 
 # Dependencies
 
 - Python
-- PyTorch
+- PyTorch (tested on 1.8.1+cpu and 1.9.0+cpu)
 - OpenAI Gym
 - MuJoCo (Warning: MuJoCo is not supported by Apple Silicon)
+- numpy
+- numdifftools (only for epg\_rb\_target\_numdifftools.py and epg\_vanilla.py)
+- matplotlib and pandas (for graphing)
 
 Install the dependencies:
 
